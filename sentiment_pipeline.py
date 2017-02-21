@@ -4,16 +4,17 @@
     Search this file for the keyword "Hint" for possible areas of
     improvement.  There are of course others.
 """
-
+#from distutils.version import LooseVersion as Version
+#from sklearn import __version__ as sklearn_version
 import pandas as pd
 import pickle
+#import os
 from sklearn.pipeline import Pipeline
-from sklearn.linear_model import LogisticRegression
 from sklearn.feature_extraction.text import TfidfVectorizer
+from nltk.stem.porter import PorterStemmer
+from sklearn.naive_bayes import MultinomialNB
 
-# Hint: These are not actually used in the current
-# pipeline, but would be used in an alternative
-# tokenizer such as PorterStemming.
+# Used for porterStemmer tokenizer
 import nltk
 nltk.download('stopwords')
 from nltk.corpus import stopwords
@@ -22,51 +23,65 @@ stop = stopwords.words('english')
 """
     This is a very basic tokenization strategy.
 
-    Hint: Perhaps implement others such as PorterStemming
-    Hint: Is this even used?  Where would you place it?
 """
+porter = PorterStemmer()
+
 def tokenizer(text):
     return text.split()
 
+def tokenizer_porter(text):
+    return [porter.stem(word) for word in text.split()]
+
+
+
 # Read in the dataset and store in a pandas dataframe
-df = pd.read_csv('/Users/baileyfreund/Desktop/AI/proj2/training_movie_data.csv')
+print("Reading Data")
+df = pd.read_csv('./training_movie_data.csv')
 
-# Split your data into training and test sets.
-# Allows you to train the model, and then perform
-# validation to get a sense of performance.
-#
-# Hint: This might be an area to change the size
-# of your training and test sets for improved
-# predictive performance.
-training_size = 39000
-X_train = df.loc[:training_size, 'review'].values
-y_train = df.loc[:training_size, 'sentiment'].values
-X_test = df.loc[training_size:, 'review'].values
-y_test = df.loc[training_size:, 'sentiment'].values
-
+   
 # Perform feature extraction on the text.
-# Hint: Perhaps there are different preprocessors to
-# test?
-tfidf = TfidfVectorizer(strip_accents=None,
-                        lowercase=False,
-                        preprocessor=None)
+print("Start preprocessor")
+tfidf = TfidfVectorizer(strip_accents=None, lowercase=True, preprocessor=None,
+                        tokenizer = tokenizer_porter,
+                        sublinear_tf=True, stop_words='english', max_df = .7,
+                        min_df = 0)
 
-# Hint: There are methods to perform parameter sweeps to find the
-# best combination of parameters.  Look towards GridSearchCV in
-# sklearn or other model selection strategies.
 
 # Create a pipeline to vectorize the data and then perform regression.
-# Hint: Are there other options to add to this process?
-# Look to documentation on Regression or similar methods for hints.
-# Possibly investigate alternative classifiers for text/sentiment.
-lr_tfidf = Pipeline([('vect', tfidf),
-                     ('clf', LogisticRegression(C=0.001,fit_intercept=False,penalty='l1',random_state=0))])
+# Uses Multinomial Naive Bayes classifier.
+print("Creating pipeline")
+lr_tfidf = Pipeline([
+                    ('vect', tfidf),
+                    ('clf', MultinomialNB())
+                    ])
 
-# Train the pipline using the training set.
-lr_tfidf.fit(X_train, y_train)
 
-# Print the Test Accuracy
-print('Test Accuracy: %.3f' % lr_tfidf.score(X_test, y_test))
+"""
+Perform K-fold validation with 10 folds
+"""
+from sklearn.cross_validation import KFold
+print("Performing K-Fold validation with 10 folds")
+k_fold = KFold(n=len(df), n_folds=10)
+scores = []
+x = 0
+for train_indices, test_indices in k_fold:
+    print("ENTERED K-FOLD LOOP")
+    
+    train_x = df.iloc[train_indices]['review'].values
+    train_y = df.iloc[train_indices]['sentiment'].values
+                     
+    test_x = df.iloc[test_indices]['review'].values
+    test_y = df.iloc[test_indices]['sentiment'].values
+
+    lr_tfidf.fit(train_x, train_y)
+
+    score = lr_tfidf.score(test_x, test_y)
+    scores.append(score)
+    print(x)
+    x = x+1
+
+print('Total reviews classified:', len(df))
+print('Score:', sum(scores)/len(scores))#this is taking the average score from the cross validation
 
 # Save the classifier for use later.
 pickle.dump(lr_tfidf, open("saved_model.sav", 'wb'))
